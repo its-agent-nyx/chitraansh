@@ -14,9 +14,13 @@ const ALLOWED_ORIGINS = new Set([
   'http://localhost:3000',
 ]);
 
-export function allowedOrigin(origin) {
+export function allowedOrigin(origin, env = process.env) {
   if (!origin) return null;
   if (ALLOWED_ORIGINS.has(origin)) return origin;
+  // Extra sites, comma separated, e.g. a custom domain: EXTRA_ALLOWED_ORIGINS=https://kayasthalekh.com
+  if ((env.EXTRA_ALLOWED_ORIGINS || '').split(',').map((s) => s.trim()).includes(origin)) return origin;
+  // Vercel production and preview addresses for this project
+  if (/^https:\/\/chitr[a-z0-9-]*\.vercel\.app$/.test(origin)) return origin;
   // Netlify deploy previews: https://<id>--chitranshh.netlify.app
   if (/^https:\/\/[a-z0-9-]+--(chitranshh|chitraansh)\.netlify\.app$/.test(origin)) return origin;
   return null;
@@ -87,7 +91,11 @@ export function brevoSender(env = process.env, fetchImpl = fetch) {
 }
 
 function clientIp(req, context) {
-  return (context && context.ip) || req.headers.get('x-nf-client-connection-ip') || req.headers.get('x-forwarded-for') || '';
+  return (context && context.ip)
+    || req.headers.get('x-nf-client-connection-ip')
+    || req.headers.get('x-real-ip')
+    || (req.headers.get('x-forwarded-for') || '').split(',')[0].trim()
+    || '';
 }
 
 function makeHandler(action) {

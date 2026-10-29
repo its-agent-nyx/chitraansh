@@ -36,7 +36,7 @@
 
   // The email-code server runs on Netlify; the GitHub Pages copy calls the main Netlify site.
   const host = location.hostname;
-  const API_BASE = (host.endsWith(".netlify.app") || host === "localhost") ? "" : "https://chitranshh.netlify.app";
+  const API_BASE = (host.endsWith(".netlify.app") || host.endsWith(".vercel.app") || host === "localhost") ? "" : "https://chitranshh.netlify.app";
 
   const AUTH_MESSAGES = {
     "auth/invalid-email": "That email address doesn't look right.",

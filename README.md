@@ -1,6 +1,7 @@
 # Chitransh — Kayastha matrimony
 
 - Live site: https://chitranshh.netlify.app/ (Netlify, built from the `main` branch)
+- Vercel: import this repo; `vercel.json` publishes `site/` and runs `api/otp.mjs`
 - Mirror: https://its-agent-nyx.github.io/chitraansh/ (GitHub Pages, from the `gh-pages` branch)
 
 ## Sign-in
@@ -22,16 +23,17 @@ New members who sign in with Google or an email code complete their profile befo
 
 ```
 site/                 ready-made static site (Next.js export, patched)
-netlify/functions/    otp-send.mjs, otp-verify.mjs
+netlify/functions/    otp-send.mjs, otp-verify.mjs (Netlify)
+api/otp.mjs           same server on Vercel (see vercel.json)
 netlify/lib/          otp.mjs (code logic), http.mjs (Firebase Admin, Brevo, CORS)
 firestore.rules       paste into Firebase console → Firestore → Rules
 tools/                patch_site.py, auth-helper.js, login-logic.js, build_sites.py
 test/                 otp.test.mjs (unit), e2e.mjs (browser, needs Playwright)
 ```
 
-## Netlify environment variables
+## Environment variables
 
-Set these in Project configuration → Environment variables. Never commit them.
+Set these in Netlify (Project configuration → Environment variables) or Vercel (Settings → Environment Variables). Never commit them.
 
 | Key | Value |
 |---|---|
@@ -42,6 +44,7 @@ Set these in Project configuration → Environment variables. Never commit them.
 | `BREVO_SENDER_EMAIL` | a sender address verified in Brevo |
 | `BREVO_SENDER_NAME` | optional, defaults to `Chitransh` |
 | `OTP_DAILY_CAP` | optional, emails per day for the whole site, defaults to `250` |
+| `EXTRA_ALLOWED_ORIGINS` | optional, extra site addresses allowed to call the email-code server, comma separated |
 
 ## Rebuilding the site from the original export
 
