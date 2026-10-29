@@ -1,0 +1,40 @@
+rules_version = '2';
+
+// Chitransh Firestore rules.
+// - members/{uid}: each signed-in member can read and write only their own profile.
+// - emailOtps, otpIpLimits: used only by the server (Firebase Admin ignores these rules); no browser access.
+// - everything else: closed.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    function validMember() {
+      let d = request.resource.data;
+      return d.keys().hasOnly([
+          'fullName', 'email', 'phone', 'gender', 'seeking', 'kulId', 'gotra', 'city',
+          'age', 'maritalStatus', 'profession', 'profileFor', 'photoURL', 'authMethod',
+          'requestedIntroductions', 'createdAt', 'updatedAt'
+        ])
+        && (!('fullName' in d) || (d.fullName is string && d.fullName.size() <= 200))
+        && (!('email' in d) || (d.email is string && d.email.size() <= 254))
+        && (!('phone' in d) || (d.phone is string && d.phone.size() <= 20))
+        && (!('gender' in d) || d.gender in ['man', 'woman'])
+        && (!('seeking' in d) || d.seeking in ['man', 'woman'])
+        && (!('photoURL' in d) || (d.photoURL is string && d.photoURL.size() <= 1000))
+        && (!('requestedIntroductions' in d) || (d.requestedIntroductions is list && d.requestedIntroductions.size() <= 200));
+    }
+
+    match /members/{uid} {
+      allow read: if isOwner(uid);
+      allow create, update: if isOwner(uid) && validMember();
+      allow delete: if isOwner(uid);
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
