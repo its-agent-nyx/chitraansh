@@ -1,6 +1,6 @@
 """Build two deployable copies of the Chitransh static site.
 
-netlify/  : served at the domain root (chitraansh.netlify.app) - primary, indexed by Google
+netlify/  : served at the domain root (chitranshh.netlify.app) - primary, indexed by Google
 ghpages/  : served under /chitraansh/ on its-agent-nyx.github.io - mirror, canonical -> Netlify
 """
 import json, os, re, shutil, sys
@@ -10,7 +10,7 @@ from datetime import date
 SRC = sys.argv[1]
 OUT = sys.argv[2]
 OG_IMAGE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'og-image.jpg')
-PRIMARY = 'https://chitraansh.netlify.app/'
+PRIMARY = 'https://chitranshh.netlify.app/'
 MIRROR = 'https://its-agent-nyx.github.io/chitraansh/'
 TITLE = 'Chitransh — Kayastha matrimony'
 DESC = ('Chitransh is a demonstration Kayastha house of alliance. Glide the palace through '

@@ -7,6 +7,7 @@ import { sendCode, verifyCode } from './otp.mjs';
 const REQUIRED_ENV = ['FIREBASE_PROJECT_ID', 'FIREBASE_CLIENT_EMAIL', 'FIREBASE_PRIVATE_KEY', 'BREVO_API_KEY', 'BREVO_SENDER_EMAIL'];
 
 const ALLOWED_ORIGINS = new Set([
+  'https://chitranshh.netlify.app',
   'https://chitraansh.netlify.app',
   'https://its-agent-nyx.github.io',
   'http://localhost:8888',
@@ -16,8 +17,8 @@ const ALLOWED_ORIGINS = new Set([
 export function allowedOrigin(origin) {
   if (!origin) return null;
   if (ALLOWED_ORIGINS.has(origin)) return origin;
-  // Netlify deploy previews: https://<id>--chitraansh.netlify.app
-  if (/^https:\/\/[a-z0-9-]+--chitraansh\.netlify\.app$/.test(origin)) return origin;
+  // Netlify deploy previews: https://<id>--chitranshh.netlify.app
+  if (/^https:\/\/[a-z0-9-]+--(chitranshh|chitraansh)\.netlify\.app$/.test(origin)) return origin;
   return null;
 }
 

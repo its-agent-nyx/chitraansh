@@ -34,10 +34,9 @@
   const PROFILE_FIELDS = ["fullName", "email", "phone", "gender", "seeking", "kulId", "gotra", "city", "age", "maritalStatus", "profession", "profileFor", "photoURL", "authMethod"];
   const REQUIRED_FIELDS = ["fullName", "gender", "kulId", "gotra", "city"];
 
-  // The email-code server lives on the Netlify site; the GitHub Pages copy calls it there.
+  // The email-code server runs on Netlify; the GitHub Pages copy calls the main Netlify site.
   const host = location.hostname;
-  const API_BASE = (host === "chitraansh.netlify.app" || host.endsWith("--chitraansh.netlify.app") || host === "localhost")
-    ? "" : "https://chitraansh.netlify.app";
+  const API_BASE = (host.endsWith(".netlify.app") || host === "localhost") ? "" : "https://chitranshh.netlify.app";
 
   const AUTH_MESSAGES = {
     "auth/invalid-email": "That email address doesn't look right.",

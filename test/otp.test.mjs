@@ -205,7 +205,9 @@ test('expired code is rejected', async () => {
 });
 
 test('CORS allows only the two sites and Netlify previews', () => {
+  assert.equal(allowedOrigin('https://chitranshh.netlify.app'), 'https://chitranshh.netlify.app');
   assert.equal(allowedOrigin('https://chitraansh.netlify.app'), 'https://chitraansh.netlify.app');
+  assert.equal(allowedOrigin('https://x1--chitranshh.netlify.app'), 'https://x1--chitranshh.netlify.app');
   assert.equal(allowedOrigin('https://its-agent-nyx.github.io'), 'https://its-agent-nyx.github.io');
   assert.equal(allowedOrigin('https://abc123--chitraansh.netlify.app'), 'https://abc123--chitraansh.netlify.app');
   assert.equal(allowedOrigin('https://evil.example'), null);
