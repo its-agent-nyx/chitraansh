@@ -2,7 +2,7 @@
   let{open:t,initialMode:initMode,intentName:n,prefill:pf,onOpenChange:r,onJoined:i}=e,
   [mode,setMode]=(0,c.useState)(initMode||"login"),
   [loginStep,setLoginStep]=(0,c.useState)("input"), /* "input" | "otp" | "password" */
-  [o,a]=(0,c.useState)(1), /* Sign-Up steps 1, 2, 3, 4 (OTP) */
+  [o,a]=(0,c.useState)(1), /* Sign-Up steps 1, 2, 3, 4 (email code) */
   [profileFor,setProfileFor]=(0,c.useState)("self"),
   [l,s]=(0,c.useState)(""), /* fullName */
   [d,h]=(0,c.useState)("man"), /* gender */
@@ -10,9 +10,9 @@
   [age,setAge]=(0,c.useState)("27"),
   [marital,setMarital]=(0,c.useState)("Never Married"),
   [m,g]=(0,c.useState)("srivastava"), /* kulId */
-  [v,y]=(0,c.useState)("Kashyap"), /* gotra */
-  [x,b]=(0,c.useState)("Delhi"), /* city */
-  [profession,setProfession]=(0,c.useState)("Software / Corporate"),
+  [v,y]=(0,c.useState)(""), /* gotra */
+  [x,b]=(0,c.useState)(""), /* city */
+  [profession,setProfession]=(0,c.useState)(""),
   [w,S]=(0,c.useState)(""), /* email */
   [k,A]=(0,c.useState)(""), /* phone */
   [E,C]=(0,c.useState)(""), /* password */
@@ -21,12 +21,16 @@
   [j,R]=(0,c.useState)(pV),
   [P,I]=(0,c.useState)(!1), /* loading */
   [D,O]=(0,c.useState)(""), /* error */
-  [loginId,setLoginId]=(0,c.useState)(""), /* Mobile No. / Email ID in Shaadi login box */
+  [info,setInfo]=(0,c.useState)(""), /* success message */
+  [loginId,setLoginId]=(0,c.useState)(""), /* Email ID in the login box */
   [otpDigits,setOtpDigits]=(0,c.useState)(["","","","","",""]),
-  [generatedOtp,setGeneratedOtp]=(0,c.useState)("123456"),
+  [authed,setAuthed]=(0,c.useState)(null), /* signed in with Google / OTP but profile not filled in yet */
   [otpNotice,setOtpNotice]=(0,c.useState)(""),
   [resendTimer,setResendTimer]=(0,c.useState)(0),
   digitRefs=(0,c.useRef)([]);
+
+  const EMAIL_RE=/^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const PHONE_RE=/^[6-9]\d{9}$/;
 
   (0,c.useEffect)(()=>{
     if(initMode) setMode(initMode);
@@ -50,7 +54,16 @@
   },[resendTimer]);
 
   function V(){
-    a(1);R(pV);O("");I(!1);setLoginStep("input");setOtpDigits(["","","","","",""]);setOtpNotice("");
+    a(1);R(pV);O("");setInfo("");I(!1);setLoginStep("input");setOtpDigits(["","","","","",""]);setOtpNotice("");setAuthed(null);
+  }
+
+  function fb(){
+    if(!window.chitranshFirebase||!window.chitranshFirebase.ready) throw new Error("Sign-in is still loading. Please try again in a moment.");
+    return window.chitranshFirebase;
+  }
+
+  function msg(err,fallback){
+    return err&&err.message?err.message:fallback;
   }
 
   function handleProfileForSelect(opt){
@@ -60,11 +73,18 @@
   }
 
   function handleDigitChange(idx,val){
-    let clean=val.replace(/\\D/g,"").slice(-1);
+    let digits=String(val||"").replace(/\D/g,"");
     let next=[...otpDigits];
-    next[idx]=clean;
+    if(digits.length>1){ /* pasted the whole code */
+      for(let q=0;q<digits.length&&idx+q<6;q++) next[idx+q]=digits[q];
+      setOtpDigits(next);
+      let last=Math.min(idx+digits.length,5);
+      if(digitRefs.current[last]) digitRefs.current[last].focus();
+      return;
+    }
+    next[idx]=digits;
     setOtpDigits(next);
-    if(clean&&idx<5&&digitRefs.current[idx+1]){
+    if(digits&&idx<5&&digitRefs.current[idx+1]){
       digitRefs.current[idx+1].focus();
     }
   }
@@ -75,134 +95,114 @@
     }
   }
 
-  function autofillOtp(){
-    let code=(generatedOtp||"123456").padEnd(6,"0").slice(0,6).split("");
-    setOtpDigits(code);
-    O("");
+  /* After Google / OTP / password sign-in: enter the house, or finish the profile first */
+  async function afterAuth(res){
+    if(!res) return;
+    if(res.needsProfile){
+      setAuthed(res);
+      if(res.fullName) s(res.fullName);
+      if(res.email) S(res.email);
+      setLoginStep("input");setOtpDigits(["","","","","",""]);setOtpNotice("");O("");setInfo("");
+      setMode("signup");a(1);
+      return;
+    }
+    await i(res);
+    V();
+    C("");
   }
 
   async function handleGoogleClick(){
-    I(!0);O("");
+    I(!0);O("");setInfo("");
     try{
-      if(window.chitranshFirebase&&window.chitranshFirebase.signInWithGoogle){
-        let member=await window.chitranshFirebase.signInWithGoogle();
-        if(member){
-          await i(member);
-          V();
-        }
-      }else{
-        O("Firebase Auth is initializing. Please try again.");
-      }
+      let api=fb();
+      await api.setRemember(stayLogged);
+      await afterAuth(await api.signInWithGoogle());
     }catch(err){
-      O(err&&err.message?err.message:"Google sign-in could not complete. Use Login with OTP below.");
+      O(msg(err,"Google sign-in could not complete. Please try again."));
     }finally{
       I(!1);
     }
   }
 
-  /* Shaadi-Style "Login with OTP" Action */
+  function loginEmailOrError(){
+    let raw=loginId.trim().toLowerCase();
+    if(!raw){O("Please enter your Email ID.");return null;}
+    if(!raw.includes("@")&&/^[+\d][\d\s-]*$/.test(raw)){O("Mobile OTP is coming soon. Please use your Email ID for now.");return null;}
+    if(!EMAIL_RE.test(raw)){O("Please enter a valid Email ID.");return null;}
+    return raw;
+  }
+
+  /* "Login with OTP": email a 6-digit code */
   async function startLoginWithOtp(ev){
-    if(ev) ev.preventDefault();
-    O("");
-    let raw=loginId.trim();
-    if(!raw){
-      O("Please enter your Mobile No. or Email ID.");
-      return;
-    }
-    let isEmail=raw.includes("@");
-    let cleanPhone=pN(raw);
-    if(!isEmail&&!/^[6-9]\\d{9}$/.test(cleanPhone)){
-      O("Enter a valid 10-digit Indian Mobile No. (e.g. 9876543210) or Email ID.");
-      return;
-    }
+    if(ev&&ev.preventDefault) ev.preventDefault();
+    O("");setInfo("");
+    let email=loginEmailOrError();
+    if(!email) return;
     I(!0);
     try{
-      let code=String(Math.floor(100000+Math.random()*900000));
-      setGeneratedOtp(code);
+      let api=fb();
+      await api.setRemember(stayLogged);
+      let res=await api.sendOtp(email);
       setOtpDigits(["","","","","",""]);
-      setResendTimer(30);
-      if(window.chitranshFirebase&&window.chitranshFirebase.sendOtp){
-        let res=await window.chitranshFirebase.sendOtp(isEmail?raw.toLowerCase():"+91"+cleanPhone,code);
-        setOtpNotice(res&&res.notice?res.notice:"OTP sent to "+(isEmail?raw:"+91 "+cleanPhone)+". Code: "+code);
-      }else{
-        setOtpNotice("OTP generated for "+(isEmail?raw:"+91 "+cleanPhone)+": "+code+" (or 123456)");
-      }
+      setResendTimer(res&&res.resendInSec?res.resendInSec:30);
+      setOtpNotice(res&&res.notice?res.notice:"We've sent a 6-digit code to "+email+".");
       setLoginStep("otp");
     }catch(err){
-      O(err&&err.message?err.message:"Could not dispatch OTP.");
+      if(err&&err.retryAfter) setResendTimer(err.retryAfter);
+      O(msg(err,"Could not send the code. Please try again."));
     }finally{
       I(!1);
     }
   }
 
-  /* Verify 6-box OTP in Login Mode */
+  /* Check the 6-box code in Login mode */
   async function verifyLoginOtp(ev){
     ev.preventDefault();
     O("");
     let entered=otpDigits.join("");
-    if(entered.length<6){
-      O("Please enter all 6 digits of the OTP.");
+    if(!/^\d{6}$/.test(entered)){
+      O("Please enter all 6 digits of the code.");
       return;
     }
     I(!0);
     try{
-      let raw=loginId.trim();
-      let isEmail=raw.includes("@");
-      let cleanPhone=pN(raw);
-      let verifiedMember=await window.chitranshFirebase.verifyOtp({
-        target:isEmail?raw.toLowerCase():cleanPhone,
-        isEmail:isEmail,
-        enteredCode:entered,
-        expectedCode:generatedOtp,
-        fullName:l.trim()||(isEmail?raw.split("@")[0]:"Member "+cleanPhone.slice(-4)),
-        gender:d||"man",
-        seeking:f||"woman",
-        kulId:m||"srivastava",
-        gotra:v.trim()||"Kashyap",
-        city:x.trim()||"Delhi"
-      });
-      await i(verifiedMember);
-      V();
+      let res=await fb().verifyOtp({target:loginId.trim().toLowerCase(),isEmail:!0,enteredCode:entered});
+      await afterAuth(res);
     }catch(err){
-      O(err&&err.message?err.message:"Invalid OTP. Click 'Auto-Fill OTP' or enter 123456.");
+      O(msg(err,"That code didn't work. Please try again."));
     }finally{
       I(!1);
     }
   }
 
-  /* Shaadi-Style "Login with Password" Action */
+  /* "Login with Password" */
   async function submitPasswordLogin(ev){
     ev.preventDefault();
-    O("");
-    let raw=loginId.trim();
-    if(!raw){
-      O("Please enter your Email ID or Mobile No.");
-      return;
-    }
-    if(E.length<6){
-      O("Please enter your password (minimum 6 characters).");
-      return;
-    }
-    let isEmail=raw.includes("@");
-    let emailClean=isEmail?raw.toLowerCase():"member."+pN(raw)+"@chitransh.app";
+    O("");setInfo("");
+    let email=loginId.trim().toLowerCase();
+    if(!email){O("Please enter your Email ID.");return;}
+    if(!EMAIL_RE.test(email)){O(/^[+\d][\d\s-]*$/.test(email)?"Password login uses your Email ID. Please enter your email.":"Please enter a valid Email ID.");return;}
+    if(!E){O("Please enter your password.");return;}
     I(!0);
     try{
-      let member=await window.chitranshFirebase.signInWithEmail({
-        email:emailClean,
-        password:E,
-        fullName:l.trim()||(isEmail?raw.split("@")[0]:"Member "+pN(raw).slice(-4)),
-        phone:isEmail?"9876543210":pN(raw),
-        gender:d||"man",
-        seeking:f||"woman",
-        kulId:m||"srivastava",
-        gotra:v.trim()||"Kashyap",
-        city:x.trim()||"Delhi"
-      });
-      await i(member);
-      V();
-      C("");
+      let api=fb();
+      await api.setRemember(stayLogged);
+      await afterAuth(await api.signInWithEmail({email:email,password:E}));
     }catch(err){
-      O(err&&err.message?err.message:"Invalid credentials. Try Login with OTP instead.");
+      O(msg(err,"Could not log in. Please try again."));
+    }finally{
+      I(!1);
+    }
+  }
+
+  async function forgotPassword(){
+    O("");setInfo("");
+    I(!0);
+    try{
+      await fb().resetPassword(loginId);
+      setInfo("If an account exists for "+loginId.trim().toLowerCase()+", we've emailed a link to reset the password. Check your spam folder too.");
+    }catch(err){
+      O(msg(err,"Could not send the reset email. Please try again."));
     }finally{
       I(!1);
     }
@@ -221,76 +221,90 @@
       if(x.trim().length<2) errs.city="Please enter the city.";
     }
     if(3===step){
-      if(!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(w.trim())) errs.email="Enter a valid Email ID.";
-      if(!/^[6-9]\\d{9}$/.test(pN(k))) errs.phone="Enter a 10-digit Indian Mobile Number.";
-      if(E.length<6) errs.password="Create a password of at least 6 characters.";
+      if(!EMAIL_RE.test(w.trim())) errs.email="Enter a valid Email ID.";
+      if(!PHONE_RE.test(pN(k))) errs.phone="Enter a 10-digit Indian Mobile Number.";
+      if(!authed&&E.length<6) errs.password="Create a password of at least 6 characters.";
     }
     R(errs);
     return 0===Object.keys(errs).length;
   }
 
-  /* Step 3 -> Step 4 (Send OTP to verify new Sign-Up) */
+  function buildProfile(){
+    return{
+      fullName:l.trim().replace(/\s+/g," "),
+      email:w.trim().toLowerCase(),
+      phone:pN(k),
+      gender:d,
+      seeking:d==="woman"?"man":"woman",
+      kulId:m,
+      gotra:v.trim(),
+      city:x.trim(),
+      age:String(age),
+      maritalStatus:marital,
+      profession:profession.trim(),
+      profileFor:profileFor
+    };
+  }
+
+  /* Step 3 -> Step 4: email a code to verify the new account (or save the profile if already signed in) */
   async function startSignupOtp(){
     if(!validateSignupStep(3)) return;
-    I(!0);O("");
+    I(!0);O("");setInfo("");
     try{
-      let code=String(Math.floor(100000+Math.random()*900000));
-      setGeneratedOtp(code);
-      setOtpDigits(["","","","","",""]);
-      setResendTimer(30);
-      let phoneClean=pN(k);
-      if(window.chitranshFirebase&&window.chitranshFirebase.sendOtp){
-        let res=await window.chitranshFirebase.sendOtp("+91"+phoneClean,code);
-        setOtpNotice(res&&res.notice?res.notice:"Verification OTP sent to +91 "+phoneClean+" & "+w.trim()+". Code: "+code);
-      }else{
-        setOtpNotice("Verification OTP for +91 "+phoneClean+": "+code);
+      let api=fb();
+      if(authed){
+        let member=await api.saveProfile({...buildProfile(),email:authed.email||w.trim().toLowerCase(),authMethod:authed.authMethod||"Verified"});
+        await i(member);
+        V();
+        return;
       }
+      await api.setRemember(stayLogged);
+      let res=await api.sendOtp(w.trim().toLowerCase());
+      setOtpDigits(["","","","","",""]);
+      setResendTimer(res&&res.resendInSec?res.resendInSec:30);
+      setOtpNotice(res&&res.notice?res.notice:"We've sent a 6-digit code to "+w.trim()+".");
       a(4);
     }catch(err){
-      O("Could not send OTP. Please try again.");
+      if(err&&err.retryAfter) setResendTimer(err.retryAfter);
+      O(msg(err,"Could not continue. Please try again."));
     }finally{
       I(!1);
     }
   }
 
-  /* Step 4: Verify OTP & Complete Sign-Up */
+  async function resendSignupOtp(){
+    O("");
+    I(!0);
+    try{
+      let res=await fb().sendOtp(w.trim().toLowerCase());
+      setOtpDigits(["","","","","",""]);
+      setResendTimer(res&&res.resendInSec?res.resendInSec:30);
+      setOtpNotice(res&&res.notice?res.notice:"We've sent a new code.");
+    }catch(err){
+      if(err&&err.retryAfter) setResendTimer(err.retryAfter);
+      O(msg(err,"Could not send the code. Please try again."));
+    }finally{
+      I(!1);
+    }
+  }
+
+  /* Step 4: check the email code, create the account, save the profile */
   async function completeSignupWithOtp(ev){
     ev.preventDefault();
     O("");
     let entered=otpDigits.join("");
-    if(entered.length<6){
-      O("Please enter the 6-digit OTP (or click Auto-Fill OTP).");
-      return;
-    }
-    if(entered!==generatedOtp&&entered!=="123456"){
-      O("Invalid OTP code. Please enter "+generatedOtp+" or 123456.");
+    if(!/^\d{6}$/.test(entered)){
+      O("Please enter the 6-digit code from your email.");
       return;
     }
     I(!0);
     try{
-      let member={
-        fullName:l.trim().replace(/\\s+/g," "),
-        email:w.trim().toLowerCase(),
-        phone:pN(k),
-        gender:d,
-        seeking:d==="woman"?"man":"woman",
-        kulId:m,
-        gotra:v.trim(),
-        city:x.trim(),
-        age:age,
-        maritalStatus:marital,
-        profession:profession,
-        profileFor:profileFor,
-        authMethod:"OTP & Email Verified"
-      };
-      if(window.chitranshFirebase&&window.chitranshFirebase.registerMember){
-        member=await window.chitranshFirebase.registerMember(member,E);
-      }
+      let member=await fb().registerWithEmailOtp({email:w.trim().toLowerCase(),code:entered,password:E,profile:buildProfile()});
       await i(member);
       V();
       C("");
     }catch(err){
-      O(err&&err.message?err.message:"Registration could not complete.");
+      O(msg(err,"Registration could not complete. Please try again."));
     }finally{
       I(!1);
     }
@@ -328,14 +342,14 @@
 
       /* Step A: Initial Login Input (Mobile No. / Email ID + "Login with OTP" & "Login with Password") */
       loginStep==="input"&&(0,u.jsxs)("form",{onSubmit:startLoginWithOtp,className:"grid gap-3.5",children:[
-        (0,u.jsx)(pB,{label:"Mobile No. / Email ID",htmlFor:"shaadi-login-id",children:(0,u.jsx)(hD,{id:"shaadi-login-id",value:loginId,onChange:e=>setLoginId(e.target.value),placeholder:"Enter 10-digit Mobile No. or Email ID",autoComplete:"username",className:"h-11 border-[#D4AF37]/35 bg-black/40 text-sm focus-visible:border-[#D4AF37]"})}),
+        (0,u.jsx)(pB,{label:"Email ID",htmlFor:"shaadi-login-id",children:(0,u.jsx)(hD,{id:"shaadi-login-id",value:loginId,onChange:e=>setLoginId(e.target.value),inputMode:"email",placeholder:"Enter your Email ID",autoComplete:"email",className:"h-11 border-[#D4AF37]/35 bg-black/40 text-sm focus-visible:border-[#D4AF37]"})}),
 
         (0,u.jsxs)("div",{className:"flex items-center justify-between text-xs text-[#d9d0c3]",children:[
           (0,u.jsxs)("label",{className:"inline-flex items-center gap-2 cursor-pointer select-none",children:[
             (0,u.jsx)("input",{type:"checkbox",checked:stayLogged,onChange:e=>setStayLogged(e.target.checked),className:"size-4 rounded accent-[#D4AF37]"}),
             (0,u.jsx)("span",{children:"Stay Logged in"})
           ]}),
-          (0,u.jsx)("button",{type:"button",onClick:()=>{if(!loginId.trim()) setLoginId("9876543210"); startLoginWithOtp();},className:"text-[#D4AF37] hover:underline",children:"Use Instant Demo OTP?"})
+          (0,u.jsx)("span",{className:"text-[#b7ad9e]",children:"Mobile OTP coming soon"})
         ]}),
 
         D&&(0,u.jsx)("p",{role:"alert",className:"rounded-xl border border-red-500/30 bg-red-950/30 px-3 py-2 text-xs text-[#ffb4a8]",children:D}),
@@ -351,7 +365,7 @@
         (0,u.jsxs)("div",{className:"rounded-2xl border border-[#D4AF37]/45 bg-[#D4AF37]/10 p-3.5 text-xs leading-relaxed text-[#f7f1e6]",children:[
           (0,u.jsxs)("div",{className:"flex items-center justify-between",children:[
             (0,u.jsx)("span",{className:"font-semibold text-[#D4AF37] uppercase tracking-wider",children:"OTP Verification"}),
-            (0,u.jsx)("button",{type:"button",onClick:autofillOtp,className:"rounded-full bg-[#D4AF37] px-2.5 py-0.5 text-[10px] font-bold text-black uppercase hover:brightness-110",children:"Auto-Fill OTP ("+generatedOtp+")"})
+            null
           ]}),
           (0,u.jsx)("p",{className:"mt-1 text-[#e7dfd2]",children:otpNotice})
         ]}),
@@ -362,7 +376,7 @@
             ref:el=>{digitRefs.current[idx]=el},
             type:"text",
             inputMode:"numeric",
-            maxLength:1,
+            maxLength:6,autoComplete:"one-time-code",
             value:otpDigits[idx],
             onChange:ev=>handleDigitChange(idx,ev.target.value),
             onKeyDown:ev=>handleDigitKeyDown(idx,ev),
@@ -376,19 +390,21 @@
         (0,u.jsx)("button",{type:"submit",disabled:P,className:"h-11 w-full rounded-xl bg-gradient-to-r from-[#D4AF37] via-[#e6c27a] to-[#D4AF37] font-semibold text-sm text-black shadow-[0_6px_25px_rgba(212,175,55,0.35)] hover:brightness-110 transition-all",children:P?"Verifying OTP…":"Verify & Login"}),
 
         (0,u.jsxs)("div",{className:"flex items-center justify-between text-xs text-[#b7ad9e]",children:[
-          (0,u.jsx)("button",{type:"button",onClick:()=>{setLoginStep("input");O("")},className:"hover:text-white underline",children:"← Change Mobile / Email"}),
+          (0,u.jsx)("button",{type:"button",onClick:()=>{setLoginStep("input");O("")},className:"hover:text-white underline",children:"← Change Email"}),
           resendTimer>0?(0,u.jsxs)("span",{children:["Resend OTP in ",resendTimer,"s"]}):(0,u.jsx)("button",{type:"button",onClick:startLoginWithOtp,className:"text-[#D4AF37] hover:underline font-medium",children:"Resend OTP"})
         ]})
       ]}),
 
       /* Step C: Password Login Screen */
       loginStep==="password"&&(0,u.jsxs)("form",{onSubmit:submitPasswordLogin,className:"grid gap-3.5",children:[
-        (0,u.jsx)(pB,{label:"Mobile No. / Email ID",htmlFor:"pw-login-id",children:(0,u.jsx)(hD,{id:"pw-login-id",value:loginId,onChange:e=>setLoginId(e.target.value),placeholder:"Enter Email ID or 10-digit Mobile No.",className:"h-11 border-[#D4AF37]/35 bg-black/40"})}),
+        (0,u.jsx)(pB,{label:"Email ID",htmlFor:"pw-login-id",children:(0,u.jsx)(hD,{id:"pw-login-id",value:loginId,onChange:e=>setLoginId(e.target.value),inputMode:"email",autoComplete:"email",placeholder:"Enter your Email ID",className:"h-11 border-[#D4AF37]/35 bg-black/40"})}),
         (0,u.jsx)(pB,{label:"Password",htmlFor:"pw-login-pass",children:(0,u.jsxs)("div",{className:"flex gap-2",children:[
           (0,u.jsx)(hD,{id:"pw-login-pass",type:T?"text":"password",value:E,onChange:e=>C(e.target.value),placeholder:"Enter password (min 6 chars)",className:"h-11 border-[#D4AF37]/35 bg-black/40"}),
           (0,u.jsx)(lO,{type:"button",variant:"outline",className:"h-11",onClick:()=>M(x=>!x),children:T?"Hide":"Show"})
         ]})}),
         D&&(0,u.jsx)("p",{role:"alert",className:"text-xs text-[#ffb4a8]",children:D}),
+        (0,u.jsx)("button",{type:"button",disabled:P,onClick:forgotPassword,className:"justify-self-end text-xs text-[#D4AF37] hover:underline disabled:opacity-50",children:"Forgot password?"}),
+        info&&(0,u.jsx)("p",{role:"status",className:"rounded-xl border border-emerald-500/30 bg-emerald-950/30 px-3 py-2 text-xs text-emerald-200",children:info}),
         (0,u.jsx)("button",{type:"submit",disabled:P,className:"h-11 w-full rounded-xl bg-gradient-to-r from-[#D4AF37] via-[#e6c27a] to-[#D4AF37] font-semibold text-sm text-black shadow hover:brightness-110 transition-all",children:P?"Signing in…":"Login"}),
         (0,u.jsx)("button",{type:"button",onClick:()=>{O("");startLoginWithOtp()},className:"h-10 w-full rounded-xl border border-[#D4AF37]/40 text-xs font-semibold text-[#D4AF37] hover:bg-[#D4AF37]/10 transition-all",children:"Or Login with OTP Instead"})
       ]}),
@@ -428,6 +444,7 @@
       (0,u.jsx)("div",{className:"flex gap-1.5","aria-hidden":!0,children:[1,2,3,4].map(step=>(0,u.jsx)("span",{className:step<=o?"h-1.5 flex-1 rounded-full bg-[#D4AF37]":"h-1.5 flex-1 rounded-full bg-white/15"},step))}),
 
       /* STEP 1: "This Profile is for" Pill Selector + Gender + Name */
+      authed&&(0,u.jsx)("p",{role:"status",className:"rounded-xl border border-[#D4AF37]/40 bg-[#D4AF37]/10 px-3 py-2 text-xs text-[#f7f1e6]",children:"Signed in as "+(authed.email||"your account")+". Please complete your profile to enter the house."}),
       1===o&&(0,u.jsxs)("div",{className:"grid gap-4",children:[
         (0,u.jsxs)("div",{children:[
           (0,u.jsx)("label",{className:"block text-xs font-semibold uppercase tracking-wider text-[#D4AF37] mb-2",children:"This Profile is for"}),
@@ -491,16 +508,16 @@
 
       /* STEP 3: Email, Mobile Number & Password */
       3===o&&(0,u.jsxs)("div",{className:"grid gap-3.5",children:[
-        (0,u.jsx)(pB,{label:"Email ID",error:j.email,htmlFor:"lekha-email",children:(0,u.jsx)(hD,{id:"lekha-email",type:"email",value:w,onChange:e=>S(e.target.value),placeholder:"name@domain.com",className:"h-11 border-[#D4AF37]/35 bg-black/40"})}),
+        (0,u.jsx)(pB,{label:"Email ID",error:j.email,htmlFor:"lekha-email",children:(0,u.jsx)(hD,{id:"lekha-email",type:"email",autoComplete:"email",value:w,onChange:e=>S(e.target.value),disabled:!!authed,placeholder:"name@domain.com",className:"h-11 border-[#D4AF37]/35 bg-black/40"})}),
         (0,u.jsx)(pB,{label:"Mobile Number (+91)",error:j.phone,htmlFor:"lekha-phone",children:(0,u.jsx)(hD,{id:"lekha-phone",inputMode:"tel",value:k,onChange:e=>A(e.target.value),placeholder:"98XXXXXXXX",className:"h-11 border-[#D4AF37]/35 bg-black/40"})}),
-        (0,u.jsx)(pB,{label:"Create Password",error:j.password,htmlFor:"lekha-password",children:(0,u.jsxs)("div",{className:"flex gap-2",children:[
+        !authed&&(0,u.jsx)(pB,{label:"Create Password",error:j.password,htmlFor:"lekha-password",children:(0,u.jsxs)("div",{className:"flex gap-2",children:[
           (0,u.jsx)(hD,{id:"lekha-password",type:T?"text":"password",value:E,onChange:e=>C(e.target.value),placeholder:"Min 6 characters",className:"h-11 border-[#D4AF37]/35 bg-black/40"}),
           (0,u.jsx)(lO,{type:"button",variant:"outline",className:"h-11",onClick:()=>M(x=>!x),children:T?"Hide":"Show"})
         ]})}),
         D&&(0,u.jsx)("p",{role:"alert",className:"text-xs text-[#ffb4a8]",children:D}),
         (0,u.jsxs)("div",{className:"flex gap-2 pt-1",children:[
           (0,u.jsx)(lO,{type:"button",variant:"outline",className:"h-11 flex-1",onClick:()=>a(2),disabled:P,children:"← Back"}),
-          (0,u.jsx)("button",{type:"button",disabled:P,onClick:startSignupOtp,className:"h-11 flex-1 rounded-xl bg-gradient-to-r from-[#D4AF37] via-[#e6c27a] to-[#D4AF37] font-semibold text-sm text-black shadow",children:P?"Sending OTP…":"Send OTP to Verify ►"})
+          (0,u.jsx)("button",{type:"button",disabled:P,onClick:startSignupOtp,className:"h-11 flex-1 rounded-xl bg-gradient-to-r from-[#D4AF37] via-[#e6c27a] to-[#D4AF37] font-semibold text-sm text-black shadow",children:P?(authed?"Saving…":"Sending code…"):(authed?"Save & Enter ►":"Email me a code ►")})
         ]})
       ]}),
 
@@ -508,17 +525,17 @@
       4===o&&(0,u.jsxs)("form",{onSubmit:completeSignupWithOtp,className:"grid gap-4",children:[
         (0,u.jsxs)("div",{className:"rounded-2xl border border-[#D4AF37]/45 bg-[#D4AF37]/10 p-3.5 text-xs leading-relaxed text-[#f7f1e6]",children:[
           (0,u.jsxs)("div",{className:"flex items-center justify-between",children:[
-            (0,u.jsx)("span",{className:"font-semibold text-[#D4AF37] uppercase tracking-wider",children:"Verify Your Mobile / Email"}),
-            (0,u.jsx)("button",{type:"button",onClick:autofillOtp,className:"rounded-full bg-[#D4AF37] px-2.5 py-0.5 text-[10px] font-bold text-black uppercase hover:brightness-110",children:"Auto-Fill OTP ("+generatedOtp+")"})
+            (0,u.jsx)("span",{className:"font-semibold text-[#D4AF37] uppercase tracking-wider",children:"Verify Your Email"}),
+            null
           ]}),
-          (0,u.jsx)("p",{className:"mt-1 text-[#e7dfd2]",children:otpNotice})
+          (0,u.jsx)("p",{className:"mt-1 text-[#e7dfd2]",children:otpNotice}),(0,u.jsx)("div",{className:"mt-2 text-right",children:resendTimer>0?(0,u.jsxs)("span",{className:"text-[#b7ad9e]",children:["Resend code in ",resendTimer,"s"]}):(0,u.jsx)("button",{type:"button",disabled:P,onClick:resendSignupOtp,className:"font-medium text-[#D4AF37] hover:underline disabled:opacity-50",children:"Resend code"})})
         ]}),
 
         (0,u.jsx)("div",{className:"flex justify-center gap-2 sm:gap-2.5",children:[0,1,2,3,4,5].map(idx=>(0,u.jsx)("input",{
           ref:el=>{digitRefs.current[idx]=el},
           type:"text",
           inputMode:"numeric",
-          maxLength:1,
+          maxLength:6,autoComplete:"one-time-code",
           value:otpDigits[idx],
           onChange:ev=>handleDigitChange(idx,ev.target.value),
           onKeyDown:ev=>handleDigitKeyDown(idx,ev),
@@ -596,7 +613,7 @@ function mDash(e){
         (0,u.jsxs)("span",{className:"rounded-full border border-[#D4AF37]/40 bg-black/40 px-2.5 py-0.5 text-[10px] tracking-wider text-[#D4AF37] uppercase",children:[kulObj.name," Kul · ",n.gotra," Gotra"]})
       ]}),
       (0,u.jsx)(d4,{className:"font-display text-4xl text-[#f7f1e6] mt-1",children:n.fullName}),
-      (0,u.jsxs)(d3,{className:"text-xs text-[#d9d0c3]",children:[n.email," • ",n.phone?"+91 "+n.phone:"Mobile verified"," • ",n.city]})
+      (0,u.jsxs)(d3,{className:"text-xs text-[#d9d0c3]",children:[n.email," • ",n.phone?"+91 "+n.phone:"Mobile not added"," • ",n.city]})
     ]}),
 
     (0,u.jsxs)("div",{className:"mt-3 flex flex-wrap gap-2 border-b border-white/10 pb-3",children:[
@@ -731,14 +748,19 @@ function mF(){
   }
   async function j(e){
     let cleanMember={
-      fullName:e.fullName||"House Member",
-      email:e.email||"member@chitransh.app",
-      phone:e.phone||"9876543210",
+      fullName:e.fullName||"Member",
+      email:e.email||"",
+      phone:e.phone||"",
       gender:"woman"===e.gender||"man"===e.gender?e.gender:"man",
       seeking:"woman"===e.seeking||"man"===e.seeking?e.seeking:"woman",
       kulId:e.kulId||"srivastava",
-      gotra:e.gotra||"Kashyap",
-      city:e.city||"Delhi",
+      gotra:e.gotra||"",
+      city:e.city||"",
+      age:e.age||"",
+      maritalStatus:e.maritalStatus||"",
+      profession:e.profession||"",
+      profileFor:e.profileFor||"",
+      photoURL:e.photoURL||"",
       uid:e.uid||"",
       authMethod:e.authMethod||"Verified"
     };
