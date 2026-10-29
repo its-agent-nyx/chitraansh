@@ -36,7 +36,7 @@
 
   // The email-code server runs on Netlify; the GitHub Pages copy calls the main Netlify site.
   const host = location.hostname;
-  const API_BASE = (host.endsWith(".netlify.app") || host.endsWith(".vercel.app") || host === "localhost") ? "" : "https://chitranshh.netlify.app";
+  const API_BASE = (host.endsWith(".netlify.app") || host.endsWith(".vercel.app") || host === "localhost") ? "" : "https://chitraansh.netlify.app";
 
   const AUTH_MESSAGES = {
     "auth/invalid-email": "That email address doesn't look right.",
@@ -75,7 +75,7 @@
     locked_day: "Too many wrong codes for this email today. Please try again tomorrow or use another sign-in method.",
     daily_cap: "Email codes are busy right now. Please try again later, or use Google or your password.",
     account_disabled: "This account has been disabled. Please contact us.",
-    server_not_configured: "Email sign-in isn't set up yet. Please use Google or your password for now.",
+    server_not_configured: "Email codes aren't available right now. Please try again later, or continue with Google.",
     origin_not_allowed: "Email sign-in isn't available on this web address.",
     server_error: "Something went wrong on our side. Please try again."
   };

@@ -1,6 +1,6 @@
 # Chitransh — Kayastha matrimony
 
-- Live site: https://chitranshh.netlify.app/ (Netlify, built from the `main` branch)
+- Live site: https://chitraansh.netlify.app/ (Netlify, built from the `main` branch)
 - Vercel: import this repo; `vercel.json` publishes `site/` and runs `api/otp.mjs`
 - Mirror: https://its-agent-nyx.github.io/chitraansh/ (GitHub Pages, from the `gh-pages` branch)
 

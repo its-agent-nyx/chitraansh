@@ -130,4 +130,16 @@ for bad in ['123456', 'lastGeneratedOtp', 'google.member@', 'firebaseio.com']:
         raise SystemExit(f'leftover {bad!r} in index.html')
 
 write(path, js)
-print('patched', OUT)
+
+# The site tells browsers to keep /_next/static files for a year, so a changed file must get a new name.
+import hashlib
+old_name = os.path.basename(CHUNK)
+new_name = hashlib.sha256(js.encode('utf-8')).hexdigest()[:16] + '.js'
+os.rename(path, os.path.join(os.path.dirname(path), new_name))
+for page in ('index.html', 'index.txt'):
+    p = os.path.join(OUT, page)
+    s = read(p)
+    if old_name not in s:
+        raise SystemExit(f'{old_name} not referenced in {page}')
+    write(p, s.replace(old_name, new_name))
+print('patched', OUT, '- sign-in script is now', new_name)
