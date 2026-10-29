@@ -12,7 +12,9 @@
 | Email OTP | `POST /api/otp/send` emails a 6-digit code through Brevo; `POST /api/otp/verify` checks it and returns a Firebase custom token |
 | Mobile OTP | Not enabled yet (needs the paid Firebase Blaze plan for SMS) |
 
-Email codes expire after 10 minutes and allow 5 wrong tries. They are limited to one every 30 seconds and 5 an hour per email, and to 20 an hour per IP address. Only an HMAC hash of each code is stored, in the Firestore collection `emailOtps`.
+Email codes expire after 10 minutes and allow 5 wrong tries each, with 10 wrong tries per email per day across codes. Sends are limited to one every 30 seconds and 5 an hour per email, 20 an hour per IP address, and 250 a day for the whole site (`OTP_DAILY_CAP`). Only an HMAC hash of each code is stored, in the Firestore collection `emailOtps`.
+
+If someone registered an email without proving it, the first code sign-in for that email replaces the password with a random one, signs out every other session, and asks the person to review the saved profile.
 
 New members who sign in with Google or an email code complete their profile before entering. Profiles are stored in Firestore at `members/{uid}`, and `firestore.rules` lets each member read and write only their own.
 
@@ -39,6 +41,7 @@ Set these in Project configuration → Environment variables. Never commit them.
 | `BREVO_API_KEY` | Brevo API key (Transactional email: All, everything else: None) |
 | `BREVO_SENDER_EMAIL` | a sender address verified in Brevo |
 | `BREVO_SENDER_NAME` | optional, defaults to `Chitransh` |
+| `OTP_DAILY_CAP` | optional, emails per day for the whole site, defaults to `250` |
 
 ## Rebuilding the site from the original export
 

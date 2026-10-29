@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { sendCode, verifyCode, OTP_COLLECTION, sha256, MAX_ATTEMPTS, IP_MAX_PER_HOUR } from '../netlify/lib/otp.mjs';
+import { sendCode, verifyCode, OTP_COLLECTION, sha256, MAX_ATTEMPTS, IP_MAX_PER_HOUR, MAX_FAILS_PER_DAY } from '../netlify/lib/otp.mjs';
 import { allowedOrigin, brevoSender, missingEnv } from '../netlify/lib/http.mjs';
 
 // Minimal in-memory stand-in for the Firestore Admin API used by otp.mjs.
@@ -38,7 +38,9 @@ function fakeAuth(existing = {}) {
       return { ...u };
     },
     async createUser({ email, emailVerified }) { const u = { uid: `u${++n}`, email, emailVerified }; users.set(u.uid, u); return u; },
+    revoked: [],
     async updateUser(uid, data) { users.set(uid, { ...users.get(uid), ...data }); },
+    async revokeRefreshTokens(uid) { this.revoked.push(uid); },
     async createCustomToken(uid) { return `token-for-${uid}`; },
   };
 }
@@ -109,15 +111,76 @@ test('correct code creates a verified user and returns a token; code is single-u
   assert.equal(again.body.error, 'no_code');
 });
 
-test('existing unverified user gets verified, not duplicated', async () => {
+test('unverified account (maybe pre-registered by someone else) is reset and its sessions revoked', async () => {
   const db = fakeDb();
-  const auth = fakeAuth({ u9: { uid: 'u9', email: 'old@x.in', emailVerified: false } });
+  const auth = fakeAuth({ u9: { uid: 'u9', email: 'old@x.in', emailVerified: false, password: 'attacker-pass' } });
   const { code } = await sendAndCapture(db, 'old@x.in', 100);
   const ok = await verifyCode({ db, auth, secret: SECRET, email: 'old@x.in', code, now: 200 });
   assert.equal(ok.body.isNew, false);
+  assert.equal(ok.body.passwordReset, true);
   assert.equal(ok.body.token, 'token-for-u9');
   assert.equal(auth.users.size, 1);
-  assert.equal(auth.users.get('u9').emailVerified, true);
+  const u = auth.users.get('u9');
+  assert.equal(u.emailVerified, true);
+  assert.notEqual(u.password, 'attacker-pass');
+  assert.deepEqual(auth.revoked, ['u9']);
+});
+
+test('verified existing account is not reset', async () => {
+  const db = fakeDb();
+  const auth = fakeAuth({ v1: { uid: 'v1', email: 'ok@x.in', emailVerified: true, password: 'mine' } });
+  const { code } = await sendAndCapture(db, 'ok@x.in', 100);
+  const ok = await verifyCode({ db, auth, secret: SECRET, email: 'ok@x.in', code, now: 200 });
+  assert.equal(ok.body.passwordReset, false);
+  assert.equal(auth.users.get('v1').password, 'mine');
+  assert.deepEqual(auth.revoked, []);
+});
+
+test('wrong guesses add up across new codes and lock the email for the day', async () => {
+  const db = fakeDb();
+  const auth = fakeAuth();
+  let t = 1_000_000;
+  let fails = 0;
+  let last;
+  while (fails < MAX_FAILS_PER_DAY) {
+    const { code } = await sendAndCapture(db, 'brute@x.in', (t += 31_000));
+    const wrong = code === '000000' ? '111111' : '000000';
+    for (let i = 0; i < 3 && fails < MAX_FAILS_PER_DAY; i++, fails++) {
+      last = await verifyCode({ db, auth, secret: SECRET, email: 'brute@x.in', code: wrong, now: t });
+    }
+    t += 13 * 60_000; // next hour window
+  }
+  assert.equal(last.body.error, 'locked_day');
+  const send = await sendAndCapture(db, 'brute@x.in', (t += 31_000));
+  assert.equal(send.out.body.error, 'locked_day');
+  const tomorrow = await sendAndCapture(db, 'brute@x.in', t + 25 * 60 * 60_000);
+  assert.equal(tomorrow.out.status, 200);
+});
+
+test('site-wide daily cap', async () => {
+  const db = fakeDb();
+  for (let i = 0; i < 3; i++) {
+    const out = await sendCode({ db, secret: SECRET, email: `c${i}@x.in`, now: 5, dailyCap: 3, sendEmail: async () => {} });
+    assert.equal(out.status, 200);
+  }
+  const over = await sendCode({ db, secret: SECRET, email: 'c9@x.in', now: 5, dailyCap: 3, sendEmail: async () => {} });
+  assert.equal(over.body.error, 'daily_cap');
+});
+
+test('a failed send does not wipe a newer code', async () => {
+  const db = fakeDb();
+  let newer;
+  const out = await sendCode({
+    db, secret: SECRET, email: 'race@x.in', now: 100,
+    sendEmail: async () => {
+      // Meanwhile a newer code was stored for the same email.
+      newer = await sendAndCapture(db, 'race@x.in', 40_000, null);
+      throw new Error('down');
+    },
+  });
+  assert.equal(out.status, 502);
+  const v = await verifyCode({ db, auth: fakeAuth(), secret: SECRET, email: 'race@x.in', code: newer.code, now: 41_000 });
+  assert.equal(v.status, 200);
 });
 
 test('123456 and other wrong codes fail; locks after max attempts', async () => {

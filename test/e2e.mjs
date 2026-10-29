@@ -25,6 +25,7 @@ const auth = {
   async getUserByEmail(email) { const u = [...adminUsers.values()].find((x) => x.email === email); if (!u) { const e = new Error(); e.code = 'auth/user-not-found'; throw e; } return u; },
   async createUser({ email, emailVerified }) { const u = { uid: `o${++un}`, email, emailVerified }; adminUsers.set(u.uid, u); return u; },
   async updateUser(uid, d) { Object.assign(adminUsers.get(uid), d); },
+  async revokeRefreshTokens() {},
   async createCustomToken(uid) { return `tok:${uid}:${adminUsers.get(uid).email}`; },
 };
 const inbox = {};
@@ -150,6 +151,43 @@ await page.evaluate(() => { window.__fake.popupUser = { email: 'meera@gmail.com'
 await dialog().getByRole('button', { name: 'Sign in with Google' }).click();
 await dialog().getByText('Please complete your profile').waitFor();
 check('Google name prefilled', (await page.inputValue('#lekha-name')) === 'Meera Saxena');
+
+await page.keyboard.press('Escape');
+await dialog().waitFor({ state: 'hidden' });
+await logout();
+
+// 6. Someone pre-registered Priya's email with a password and filled a profile. Priya logs in with an email code.
+adminUsers.set('x1', { uid: 'x1', email: 'priya@example.in', emailVerified: false });
+await page.evaluate(() => {
+  const F = window.__fake;
+  F.users.x1 = { uid: 'x1', email: 'priya@example.in', displayName: null, photoURL: null, providerData: [{ providerId: 'password' }], password: 'attacker' };
+  F.db['members/x1'] = { fullName: 'Fake Person', email: 'priya@example.in', gender: 'woman', seeking: 'man', kulId: 'saxena', gotra: 'Vatsa', city: 'Agra', phone: '9000000001' };
+});
+await openAuth('Login');
+await page.fill('#shaadi-login-id', 'priya@example.in');
+await dialog().getByRole('button', { name: 'Login with OTP' }).click();
+await dialog().getByText('We\'ve sent a 6-digit code').waitFor();
+await typeCode(inbox['priya@example.in']);
+await dialog().getByRole('button', { name: 'Verify & Login' }).click();
+await dialog().getByText('Please complete your profile').waitFor();
+check('reset account must review its profile before entering', (await page.inputValue('#lekha-name')) === 'Fake Person' && (await member()) === null);
+check('server reset the unproven account', adminUsers.get('x1').emailVerified === true && !!adminUsers.get('x1').password);
+await page.keyboard.press('Escape');
+await dialog().waitFor({ state: 'hidden' });
+await logout();
+
+// 7. Google for an email that already has an account: link after logging in with the password
+await page.evaluate(() => { window.__fake.popupUser = { email: 'rohan@example.in', name: 'Rohan', conflict: true }; });
+await openAuth('Login');
+await dialog().getByRole('button', { name: 'Sign in with Google' }).click();
+await page.waitForTimeout(300);
+check('existing-account message for Google', /already has an account/i.test(await alertText()), await alertText());
+await dialog().getByRole('button', { name: 'Login with Password' }).click();
+await page.fill('#pw-login-id', 'rohan@example.in');
+await page.fill('#pw-login-pass', 'secret77');
+await dialog().locator('form button[type=submit]', { hasText: 'Login' }).click();
+await dialog().waitFor({ state: 'hidden' });
+check('Google linked after password login', await page.evaluate(() => window.__fake.linked.length === 1));
 
 check('no page errors', consoleErrors.length === 0, consoleErrors.join(' | '));
 await browser.close();

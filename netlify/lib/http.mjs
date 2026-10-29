@@ -112,7 +112,7 @@ function makeHandler(action) {
     try {
       const { auth, db, secret } = services();
       const out = action === 'send'
-        ? await sendCode({ db, secret, sendEmail: brevoSender(), email: body.email, ip: clientIp(req, context) })
+        ? await sendCode({ db, secret, sendEmail: brevoSender(), email: body.email, ip: clientIp(req, context), dailyCap: Number(process.env.OTP_DAILY_CAP) || undefined })
         : await verifyCode({ db, auth, secret, email: body.email, code: body.code });
       return json(out.status, out.body, origin);
     } catch (err) {

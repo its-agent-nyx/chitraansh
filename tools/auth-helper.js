@@ -9,8 +9,8 @@
     GoogleAuthProvider,
     signInWithPopup,
     signInWithEmailAndPassword,
-    createUserWithEmailAndPassword,
     signInWithCustomToken,
+    linkWithCredential,
     sendPasswordResetEmail,
     updatePassword,
     updateProfile,
@@ -56,7 +56,7 @@
     "auth/unauthorized-domain": "Google sign-in isn't allowed on this web address yet. Please use the main site or log in with email.",
     "auth/operation-not-allowed": "This sign-in method is switched off. Please use another way to log in.",
     "auth/network-request-failed": "Network problem. Check your internet connection and try again.",
-    "auth/account-exists-with-different-credential": "This email is registered with a different sign-in method. Please use Login with OTP.",
+    "auth/account-exists-with-different-credential": "This email already has an account. Log in with OTP (or your password) once, and Google will be linked to it.",
     "auth/requires-recent-login": "Please log in again to continue.",
     "auth/invalid-custom-token": "That code could not be used. Please request a new one.",
     "permission-denied": "We couldn't save your profile. Please log in again."
@@ -73,6 +73,8 @@
     expired: "This code has expired. Please request a new one.",
     wrong_code: "That code is incorrect.",
     locked: "Too many wrong tries. Please request a new code.",
+    locked_day: "Too many wrong codes for this email today. Please try again tomorrow or use another sign-in method.",
+    daily_cap: "Email codes are busy right now. Please try again later, or use Google or your password.",
     account_disabled: "This account has been disabled. Please contact us.",
     server_not_configured: "Email sign-in isn't set up yet. Please use Google or your password for now.",
     origin_not_allowed: "Email sign-in isn't available on this web address.",
@@ -149,17 +151,30 @@
   }
 
   // After any successful Firebase sign-in: return the saved member, or ask the app to collect the profile.
-  async function finishSignIn(user, authMethod) {
+  // A Google sign-in that hit "account exists" is linked after the person proves the email another way.
+  let pendingGoogle = null;
+  async function linkPendingGoogle(user) {
+    if (!pendingGoogle || !user.email || pendingGoogle.email !== user.email.toLowerCase()) return;
+    const cred = pendingGoogle.credential;
+    pendingGoogle = null;
+    try { await linkWithCredential(user, cred); } catch (e) {}
+  }
+
+  async function finishSignIn(user, authMethod, review) {
     sessionStorage.removeItem("lekha.logged_out");
+    await linkPendingGoogle(user);
     let profile = null;
     try { profile = await loadProfile(user.uid); } catch (e) { throw friendly(e, "We couldn't load your profile. Please try again."); }
-    if (isComplete(profile)) return toMember(user, profile);
+    // review: the account was reset because nobody had proved this email before, so the
+    // person checks the saved details before entering.
+    if (!review && isComplete(profile)) return toMember(user, profile);
     return {
       needsProfile: true,
       uid: user.uid,
       email: user.email || "",
       fullName: (profile && profile.fullName) || user.displayName || "",
       photoURL: user.photoURL || "",
+      profile: profile ? cleanProfile(profile) : null,
       authMethod: authMethod || methodOf(user)
     };
   }
@@ -219,6 +234,11 @@
       try {
         result = await signInWithPopup(auth, provider);
       } catch (e) {
+        if (e && e.code === "auth/account-exists-with-different-credential") {
+          const credential = GoogleAuthProvider.credentialFromError(e);
+          const email = e.customData && e.customData.email;
+          if (credential && email) pendingGoogle = { credential, email: String(email).toLowerCase() };
+        }
         throw friendly(e, "Google sign-in could not complete. Please try again.");
       }
       return finishSignIn(result.user, "Google");
@@ -241,15 +261,15 @@
 
     async verifyOtp({ target, enteredCode }) {
       const email = String(target || "").trim().toLowerCase();
-      let token;
+      let res;
       try {
-        token = (await callOtp("verify", { email, code: String(enteredCode || "").trim() })).token;
+        res = await callOtp("verify", { email, code: String(enteredCode || "").trim() });
       } catch (e) {
         throw friendly(e);
       }
       try {
-        const cred = await signInWithCustomToken(auth, token);
-        return finishSignIn(cred.user, "Email OTP");
+        const cred = await signInWithCustomToken(auth, res.token);
+        return finishSignIn(cred.user, "Email OTP", !!res.passwordReset);
       } catch (e) {
         throw friendly(e);
       }
@@ -268,6 +288,7 @@
     // Sign-up: prove the email with a code, set the chosen password, save the profile.
     async registerWithEmailOtp({ email, code, password, profile }) {
       const cleanEmail = String(email || "").trim().toLowerCase();
+      if (!password || password.length < 6) throw new Error("Create a password of at least 6 characters.");
       let res;
       try {
         res = await callOtp("verify", { email: cleanEmail, code: String(code || "").trim() });
@@ -280,24 +301,14 @@
       } catch (e) {
         throw friendly(e);
       }
+      await linkPendingGoogle(user);
       const hasPassword = (user.providerData || []).some((x) => x.providerId === "password");
-      if (password && (res.isNew || !hasPassword)) {
+      if (res.isNew || res.passwordReset || !hasPassword) {
         try { await updatePassword(user, password); } catch (e) { throw friendly(e); }
       }
       const existing = await loadProfile(user.uid).catch(() => null);
-      if (isComplete(existing)) return toMember(user, existing); // already a member: just log in
+      if (isComplete(existing) && !res.passwordReset) return toMember(user, existing); // already a member: just log in
       return writeProfile(user, { ...profile, email: cleanEmail, authMethod: "Email Verified" });
-    },
-
-    // Kept for compatibility: plain email + password sign-up without a code.
-    async registerMember(member, password) {
-      let cred;
-      try {
-        cred = await createUserWithEmailAndPassword(auth, String(member.email || "").trim().toLowerCase(), password);
-      } catch (e) {
-        throw friendly(e);
-      }
-      return writeProfile(cred.user, { ...member, authMethod: "Email & Password" });
     },
 
     // For people already signed in (Google / OTP) who still need to fill in their profile.

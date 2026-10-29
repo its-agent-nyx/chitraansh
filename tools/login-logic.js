@@ -101,6 +101,17 @@
       setAuthed(res);
       if(res.fullName) s(res.fullName);
       if(res.email) S(res.email);
+      let pr=res.profile||{};
+      if(pr.gender==="man"||pr.gender==="woman") h(pr.gender);
+      if(pr.seeking==="man"||pr.seeking==="woman") p(pr.seeking);
+      if(pr.kulId&&pD.some(e=>e.id===pr.kulId)) g(pr.kulId);
+      if(pr.gotra) y(pr.gotra);
+      if(pr.city) b(pr.city);
+      if(pr.phone) A(pr.phone);
+      if(pr.age) setAge(pr.age);
+      if(pr.maritalStatus) setMarital(pr.maritalStatus);
+      if(pr.profession) setProfession(pr.profession);
+      if(pr.profileFor) setProfileFor(pr.profileFor);
       setLoginStep("input");setOtpDigits(["","","","","",""]);setOtpNotice("");O("");setInfo("");
       setMode("signup");a(1);
       return;
